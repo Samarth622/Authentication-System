@@ -3,6 +3,7 @@ import bodyParser from 'body-parser';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { configDotenv } from 'dotenv';
+import userRouter from "./routes/user.routes.js";
 
 configDotenv();
 
@@ -16,5 +17,7 @@ app.use(cookieParser());
 app.get('/', (req, res) => {
   res.send('Hello, World!');
 });
+
+app.use('/api/v1/user', userRouter);
 
 export default app;
