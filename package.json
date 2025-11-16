@@ -1,0 +1,20 @@
+{
+  "name": "authentication-system",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/Samarth622/Authentication-System#readme",
+  "bugs": {
+    "url": "https://github.com/Samarth622/Authentication-System/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Samarth622/Authentication-System.git"
+  },
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
