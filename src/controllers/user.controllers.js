@@ -1,11 +1,15 @@
 import { uploadToCloudinary } from "../utils/uploadToCloudinary.js";
-import { registerSchema } from "../utils/validation.js";
+import { loginSchema, registerSchema } from "../utils/validation.js";
 import User from "../models/user.model.js";
 import TempUser from "../models/tempUser.model.js";
 import { generateOTP } from "../utils/generateOTP.js";
 import OTP from "../models/otp.model.js";
 import bcrypt from "bcryptjs";
 import { sendEmail } from "../utils/sendEmail.js";
+import {
+  generateAcessToken,
+  generateRefreshToken,
+} from "../utils/generateToken.js";
 
 export const registerUser = async (req, res) => {
   try {
@@ -53,7 +57,7 @@ export const registerUser = async (req, res) => {
     await OTP.create({
       email,
       otp: hashedOtp,
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
     await sendEmail(
@@ -98,7 +102,8 @@ export const verifyOtp = async (req, res) => {
       email: tempUser.email,
       password: tempUser.password,
       avatar: tempUser.avatar,
-    }).select("-password");
+      isVerified: true,
+    });
 
     await OTP.deleteMany({ email });
     await TempUser.deleteMany({ email });
@@ -112,5 +117,68 @@ export const verifyOtp = async (req, res) => {
     return res
       .status(500)
       .json({ message: "Server error", error: err.message });
+  }
+};
+
+export const login = async (req, res) => {
+  try {
+
+    const validatedData = loginSchema.safeParse(req.body);
+
+    if (!validatedData.success) {
+      return res.status(400).json({
+        status: "error",
+        error: "Invalid input data",
+      });
+    }
+
+    const { email, password } = validatedData.data;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid email or password",
+      });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid email or password",
+      });
+    }
+
+    const accessToken = generateAcessToken(user._id, user.role);
+
+    const refreshToken = generateRefreshToken(user._id);
+
+    user.refreshToken.push(refreshToken);
+    await user.save();
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: false,
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    };
+
+    res.cookie("refreshToken", refreshToken, cookieOptions);
+
+    user.password = undefined;
+
+    return res.status(200).json({
+      status: "success",
+      message: "Login successful",
+      accessToken,
+      user,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: "error",
+      message: "Server error",
+      error: error.message,
+    });
   }
 };

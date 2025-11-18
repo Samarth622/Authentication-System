@@ -1,16 +1,19 @@
 import nodemailer from "nodemailer";
 import { MailtrapTransport } from "mailtrap";
 
-const transport = nodemailer.createTransport(
-  MailtrapTransport({
-    token: process.env.MAILTRAP_TOKEN,
-  })
-);
+const transport = nodemailer.createTransport({
+  host: "sandbox.smtp.mailtrap.io",
+  port: 2525,
+  auth: {
+    user: "cb8663dff11e83",
+    pass: "90264ff00f8222",
+  },
+});
 
 export const sendEmail = async (to, subject, text) => {
   try {
     const sender = {
-      address: "hello@demomailtrap.co",
+      address: "hello@demomailtrap.com",
       name: "OTP Verification",
     };
 
