@@ -9,6 +9,7 @@ import { sendEmail } from "../utils/sendEmail.js";
 import {
   generateAcessToken,
   generateRefreshToken,
+  verifyToken
 } from "../utils/generateToken.js";
 
 export const registerUser = async (req, res) => {
@@ -179,6 +180,102 @@ export const login = async (req, res) => {
       status: "error",
       message: "Server error",
       error: error.message,
+    });
+  }
+};
+
+
+export const refreshToken = async (req, res) => {
+  try {
+    // 1) Read cookie
+    const token = req.cookies?.refreshToken;
+    if (!token) {
+      return res.status(401).json({ status: "error", message: "Refresh token missing" });
+    }
+
+    // 2) Verify token (returns payload or null)
+    const payload = verifyToken(token, process.env.REFRESH_TOKEN_SECRET);
+    if (!payload || !payload.userId) {
+      // invalid or expired token
+      return res.status(403).json({ status: "error", message: "Invalid refresh token" });
+    }
+
+    const userId = payload.userId;
+
+    // 3) Find user
+    const user = await User.findById(userId).select("+refreshTokens +refreshToken");
+    if (!user) {
+      return res.status(403).json({ status: "error", message: "User not found" });
+    }
+
+    // Support both field names (refreshTokens or refreshToken) to be safe
+    const tokensArray = Array.isArray(user.refreshTokens)
+      ? user.refreshTokens
+      : Array.isArray(user.refreshToken)
+      ? user.refreshToken
+      : [];
+
+    // 4) Check whether incoming token exists in the user's stored tokens
+    const tokenExists = tokensArray.includes(token);
+
+    if (!tokenExists) {
+      // POSSIBLE TOKEN REUSE: valid token but not in DB → attacker might have stolen it.
+      // Invalidate all sessions by clearing user's stored refresh tokens.
+      // (Optional: you could also notify user / email / log this event)
+      user.refreshTokens = [];
+      user.refreshToken = [];
+      await user.save();
+
+      res.clearCookie("refreshToken", {
+        httpOnly: true,
+        secure: false,
+        sameSite: "strict",
+      });
+
+      return res.status(403).json({
+        status: "error",
+        message: "Refresh token reuse detected. Please login again.",
+      });
+    }
+
+    // 5) Token is valid and present in DB → rotate it
+    // Remove old token and add new refresh token
+    const newAccessToken = generateAccessToken(user._id, user.role);
+    const newRefreshToken = generateRefreshToken(user._id);
+
+    // Replace tokens array: remove old token, push new token
+    const filtered = tokensArray.filter((t) => t !== token);
+    filtered.push(newRefreshToken);
+
+    // Save back to whichever field exists on your model
+    if (Array.isArray(user.refreshTokens)) {
+      user.refreshTokens = filtered;
+    } else {
+      user.refreshToken = filtered;
+    }
+
+    await user.save();
+
+    // 6) Set cookie with new refresh token
+    const cookieOptions = {
+      httpOnly: true,
+      secure: false,
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    };
+    res.cookie("refreshToken", newRefreshToken, cookieOptions);
+
+    // 7) Return new access token to client
+    return res.status(200).json({
+      status: "success",
+      accessToken: newAccessToken,
+    });
+  } catch (err) {
+    console.error("Refresh error:", err);
+    return res.status(500).json({
+      status: "error",
+      message: "Server error",
+      error: err.message,
     });
   }
 };
