@@ -9,7 +9,7 @@ import { sendEmail } from "../utils/sendEmail.js";
 import {
   generateAcessToken,
   generateRefreshToken,
-  verifyToken
+  verifyToken,
 } from "../utils/generateToken.js";
 
 export const registerUser = async (req, res) => {
@@ -123,7 +123,6 @@ export const verifyOtp = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-
     const validatedData = loginSchema.safeParse(req.body);
 
     if (!validatedData.success) {
@@ -184,28 +183,35 @@ export const login = async (req, res) => {
   }
 };
 
-
 export const refreshToken = async (req, res) => {
   try {
     // 1) Read cookie
     const token = req.cookies?.refreshToken;
     if (!token) {
-      return res.status(401).json({ status: "error", message: "Refresh token missing" });
+      return res
+        .status(401)
+        .json({ status: "error", message: "Refresh token missing" });
     }
 
     // 2) Verify token (returns payload or null)
     const payload = verifyToken(token, process.env.REFRESH_TOKEN_SECRET);
     if (!payload || !payload.userId) {
       // invalid or expired token
-      return res.status(403).json({ status: "error", message: "Invalid refresh token" });
+      return res
+        .status(403)
+        .json({ status: "error", message: "Invalid refresh token" });
     }
 
     const userId = payload.userId;
 
     // 3) Find user
-    const user = await User.findById(userId).select("+refreshTokens +refreshToken");
+    const user = await User.findById(userId).select(
+      "+refreshTokens +refreshToken"
+    );
     if (!user) {
-      return res.status(403).json({ status: "error", message: "User not found" });
+      return res
+        .status(403)
+        .json({ status: "error", message: "User not found" });
     }
 
     // Support both field names (refreshTokens or refreshToken) to be safe
@@ -276,6 +282,41 @@ export const refreshToken = async (req, res) => {
       status: "error",
       message: "Server error",
       error: err.message,
+    });
+  }
+};
+
+export const logoutUser = async (req, res) => {
+  try {
+    const token = req.cookies?.refreshToken;
+
+    if (!token) {
+      return res
+        .status(400)
+        .json({ status: "error", message: "Refresh token missing" });
+    }
+
+    const user = await User.findOne({ refreshToken: token });
+    if (user) {
+      user.refreshToken = user.refreshToken.filter((t) => t !== token);
+      await user.save();
+    }
+
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: false,
+      sameSite: "strict",
+    });
+
+    return res.status(200).json({
+      status: "success",
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: "error",
+      message: "Server error",
+      error: error.message,
     });
   }
 };
