@@ -1,6 +1,11 @@
 import { uploadToCloudinary } from "../utils/uploadToCloudinary.js";
 import { registerSchema } from "../utils/validation.js";
 import User from "../models/user.model.js";
+import TempUser from "../models/tempUser.model.js";
+import { generateOTP } from "../utils/generateOTP.js";
+import OTP from "../models/otp.model.js";
+import bcrypt from "bcryptjs";
+import { sendEmail } from "../utils/sendEmail.js";
 
 export const registerUser = async (req, res) => {
   try {
@@ -35,17 +40,32 @@ export const registerUser = async (req, res) => {
     const uploadedAvatarUrl = await uploadToCloudinary(req.file.buffer);
     avatarUrl = uploadedAvatarUrl.secure_url;
 
-    const newUser = await User.create({
+    const newUser = await TempUser.create({
       name,
       email,
       password,
       avatar: avatarUrl,
-    }).select("-password");
+    });
 
-    return res.status(201).json({
+    const otp = generateOTP();
+    const hashedOtp = await bcrypt.hash(otp, 10);
+
+    await OTP.create({
+      email,
+      otp: hashedOtp,
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+
+    await sendEmail(
+      email,
+      "Verify Your Email",
+      `Your OTP is: ${otp}. Valid for 5 minutes.`
+    );
+
+    return res.status(200).json({
       status: "success",
-      message: "User registered successfully",
-      user: newUser,
+      message: "OTP sent to your email. Please verify.",
+      tempUserId: newUser._id,
     });
   } catch (err) {
     return res.status(500).json({
@@ -53,5 +73,44 @@ export const registerUser = async (req, res) => {
       message: "Internal server error",
       error: err.message,
     });
+  }
+};
+
+export const verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const otpRecord = await OTP.findOne({ email });
+    if (!otpRecord) return res.status(400).json({ message: "OTP not found" });
+
+    if (otpRecord.expiresAt < Date.now())
+      return res.status(400).json({ message: "OTP expired" });
+
+    const isValid = await bcrypt.compare(otp, otpRecord.otp);
+    if (!isValid) return res.status(400).json({ message: "Invalid OTP" });
+
+    const tempUser = await TempUser.findOne({ email });
+    if (!tempUser)
+      return res.status(400).json({ message: "Temp user not found" });
+
+    const newUser = await User.create({
+      name: tempUser.name,
+      email: tempUser.email,
+      password: tempUser.password,
+      avatar: tempUser.avatar,
+    }).select("-password");
+
+    await OTP.deleteMany({ email });
+    await TempUser.deleteMany({ email });
+
+    return res.json({
+      status: "success",
+      message: "OTP verified, user registered",
+      user: newUser,
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
   }
 };
